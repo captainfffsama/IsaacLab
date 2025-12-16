@@ -1,3 +1,5 @@
+.history/
+.vscode/
 # C++
 **/cmake-build*/
 **/build*/
