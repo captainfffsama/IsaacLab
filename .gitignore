@@ -1,3 +1,5 @@
+.marscode/
+pyrightconfig.json
 .history/
 .vscode/
 # C++
