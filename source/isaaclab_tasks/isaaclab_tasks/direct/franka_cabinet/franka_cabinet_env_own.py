@@ -1,12 +1,17 @@
-# Copyright (c) 2022-2025, The Isaac Lab Project Developers (https://github.com/isaac-sim/IsaacLab/blob/main/CONTRIBUTORS.md).
-# All rights reserved.
-#
-# SPDX-License-Identifier: BSD-3-Clause
+# -*- coding: utf-8 -*-
+'''
+@Author: captain_hq
+@Date: 2025-12-18 13:29:07
+@LastEditors: captain_hq tuanzhang_hc5090@outlook.com
+@LastEditTime: 2025-12-18 13:40:27
+@FilePath: /IsaacLab/source/isaaclab_tasks/isaaclab_tasks/direct/franka_cabinet/franka_cabinet_env_own.py
+@Description:
+'''
 
 from __future__ import annotations
 
 import torch
-
+from  collections.abc import Sequence
 from isaacsim.core.utils.torch.transformations import tf_combine, tf_inverse, tf_vector
 from pxr import UsdGeom
 
@@ -21,6 +26,7 @@ from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR, ISAACLAB_NUCLEUS_DIR
 from isaaclab.utils.math import sample_uniform
+
 
 
 @configclass
@@ -58,7 +64,7 @@ class FrankaCabinetEnvCfg(DirectRLEnvCfg):
             activate_contact_sensors=False,
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 disable_gravity=False,
-                max_depenetration_velocity=5.0,
+                max_depenetration_velocity=5.0,# 穿模速度
             ),
             articulation_props=sim_utils.ArticulationRootPropertiesCfg(
                 enabled_self_collisions=False, solver_position_iteration_count=12, solver_velocity_iteration_count=1
@@ -72,7 +78,7 @@ class FrankaCabinetEnvCfg(DirectRLEnvCfg):
                 "panda_joint4": -2.239,
                 "panda_joint5": -1.841,
                 "panda_joint6": 1.003,
-                "panda_joint7": 0.469,
+                "panda_joint7": 0.469, #法兰位置
                 "panda_finger_joint.*": 0.035,
             },
             pos=(1.0, 0.0, 0.0),
@@ -81,7 +87,7 @@ class FrankaCabinetEnvCfg(DirectRLEnvCfg):
         actuators={
             "panda_shoulder": ImplicitActuatorCfg(
                 joint_names_expr=["panda_joint[1-4]"],
-                effort_limit_sim=87.0,
+                effort_limit_sim=87.0, #最大输出扭矩nm
                 stiffness=80.0,
                 damping=4.0,
             ),
@@ -137,10 +143,10 @@ class FrankaCabinetEnvCfg(DirectRLEnvCfg):
     terrain = TerrainImporterCfg(
         prim_path="/World/ground",
         terrain_type="plane",
-        collision_group=-1,
+        collision_group=-1, # 定义碰撞组，这里是会和所有的物体碰撞
         physics_material=sim_utils.RigidBodyMaterialCfg(
-            friction_combine_mode="multiply",
-            restitution_combine_mode="multiply",
+            friction_combine_mode="multiply",# 两个物体的摩擦力结合模式为乘法
+            restitution_combine_mode="multiply",# 两个物体的弹性系数结合模式为乘法，反弹的方式
             static_friction=1.0,
             dynamic_friction=1.0,
             restitution=0.0,
@@ -173,7 +179,7 @@ class FrankaCabinetEnv(DirectRLEnv):
     def __init__(self, cfg: FrankaCabinetEnvCfg, render_mode: str | None = None, **kwargs):
         super().__init__(cfg, render_mode, **kwargs)
 
-        def get_env_local_pose(env_pos: torch.Tensor, xformable: UsdGeom.Xformable, device: torch.device):
+        def get_env_local_pose(env_pos: torch.Tensor, xformable: UsdGeom.Xformable, device: str|torch.device):
             """Compute pose in env-local coordinates"""
             world_transform = xformable.ComputeLocalToWorldTransform(0)
             world_pos = world_transform.ExtractTranslation()
@@ -189,9 +195,10 @@ class FrankaCabinetEnv(DirectRLEnv):
 
             return torch.tensor([px, py, pz, qw, qx, qy, qz], device=device)
 
+        # 计算控制时间步长
         self.dt = self.cfg.sim.dt * self.cfg.decimation
 
-        # create auxiliary variables for computing applied action, observations and rewards
+        # 创建用于计算应用动作、观测和奖励的辅助变量
         self.robot_dof_lower_limits = self._robot.data.soft_joint_pos_limits[0, :, 0].to(device=self.device)
         self.robot_dof_upper_limits = self._robot.data.soft_joint_pos_limits[0, :, 1].to(device=self.device)
 
@@ -202,6 +209,9 @@ class FrankaCabinetEnv(DirectRLEnv):
         self.robot_dof_targets = torch.zeros((self.num_envs, self._robot.num_joints), device=self.device)
 
         stage = get_current_stage()
+
+        #获取env0下的手，手指环境坐标系
+        #NOTE: 这和b里的坐标的关系？
         hand_pose = get_env_local_pose(
             self.scene.env_origins[0],
             UsdGeom.Xformable(stage.GetPrimAtPath("/World/envs/env_0/Robot/panda_link7")),
@@ -221,8 +231,10 @@ class FrankaCabinetEnv(DirectRLEnv):
         finger_pose = torch.zeros(7, device=self.device)
         finger_pose[0:3] = (lfinger_pose[0:3] + rfinger_pose[0:3]) / 2.0
         finger_pose[3:7] = lfinger_pose[3:7]
+        # 用于计算手腕到env的坐标变换
         hand_pose_inv_rot, hand_pose_inv_pos = tf_inverse(hand_pose[3:7], hand_pose[0:3])
 
+        # 计算手指相对手腕的变换
         robot_local_grasp_pose_rot, robot_local_pose_pos = tf_combine(
             hand_pose_inv_rot, hand_pose_inv_pos, finger_pose[3:7], finger_pose[0:3]
         )
@@ -230,6 +242,7 @@ class FrankaCabinetEnv(DirectRLEnv):
         self.robot_local_grasp_pos = robot_local_pose_pos.repeat((self.num_envs, 1))
         self.robot_local_grasp_rot = robot_local_grasp_pose_rot.repeat((self.num_envs, 1))
 
+        #柜子抽屉把手的抓取点相对于抽屉的局部坐标系位置
         drawer_local_grasp_pose = torch.tensor([0.3, 0.01, 0.0, 1.0, 0.0, 0.0, 0.0], device=self.device)
         self.drawer_local_grasp_pos = drawer_local_grasp_pose[0:3].repeat((self.num_envs, 1))
         self.drawer_local_grasp_rot = drawer_local_grasp_pose[3:7].repeat((self.num_envs, 1))
@@ -282,10 +295,14 @@ class FrankaCabinetEnv(DirectRLEnv):
     def _pre_physics_step(self, actions: torch.Tensor):
         self.actions = actions.clone().clamp(-1.0, 1.0)
         targets = self.robot_dof_targets + self.robot_dof_speed_scales * self.dt * self.actions * self.cfg.action_scale
+        # #DEBUG:
+        # self._targets_debug=targets.clone()
         self.robot_dof_targets[:] = torch.clamp(targets, self.robot_dof_lower_limits, self.robot_dof_upper_limits)
+        print("self.robot_dof_targets:", self.robot_dof_targets)
 
     def _apply_action(self):
         self._robot.set_joint_position_target(self.robot_dof_targets)
+        # pass
 
     # post-physics step calls
 
@@ -322,7 +339,8 @@ class FrankaCabinetEnv(DirectRLEnv):
             self._robot.data.joint_pos,
         )
 
-    def _reset_idx(self, env_ids: torch.Tensor | None):
+
+    def _reset_idx(self, env_ids: Sequence[int]):
         super()._reset_idx(env_ids)
         # robot state
         joint_pos = self._robot.data.default_joint_pos[env_ids] + sample_uniform(
@@ -331,6 +349,10 @@ class FrankaCabinetEnv(DirectRLEnv):
             (len(env_ids), self._robot.num_joints),
             self.device,
         )
+        #DEBUG:
+        # print("default_joint_pos:", self._robot.data.default_joint_pos[env_ids])
+        # joint_pos = self._robot.data.default_joint_pos[env_ids]
+
         joint_pos = torch.clamp(joint_pos, self.robot_dof_lower_limits, self.robot_dof_upper_limits)
         joint_vel = torch.zeros_like(joint_pos)
         self._robot.set_joint_position_target(joint_pos, env_ids=env_ids)
@@ -343,7 +365,9 @@ class FrankaCabinetEnv(DirectRLEnv):
         # Need to refresh the intermediate values so that _get_observations() can use the latest values
         self._compute_intermediate_values(env_ids)
 
+
     def _get_observations(self) -> dict:
+        # NOTE: 这里关节做了归一化处理
         dof_pos_scaled = (
             2.0
             * (self._robot.data.joint_pos - self.robot_dof_lower_limits)
@@ -367,6 +391,11 @@ class FrankaCabinetEnv(DirectRLEnv):
     # auxiliary methods
 
     def _compute_intermediate_values(self, env_ids: torch.Tensor | None = None):
+        """计算世界坐标系下抓取点位置和指尖位置
+
+        Args:
+            env_ids (torch.Tensor | None, optional): _description_. Defaults to None.
+        """
         if env_ids is None:
             env_ids = self._robot._ALL_INDICES
 
@@ -390,6 +419,16 @@ class FrankaCabinetEnv(DirectRLEnv):
             self.drawer_local_grasp_pos[env_ids],
         )
 
+        #  # 调试代码
+        # if env_ids is None or 0 in env_ids:
+        #     left_pos = self._robot.data.body_pos_w[0, self.left_finger_link_idx]
+        #     right_pos = self._robot.data.body_pos_w[0, self.right_finger_link_idx]
+        #     finger_avg = (left_pos + right_pos) / 2
+
+        #     print(f"手指平均位置: {finger_avg}")
+        #     print(f"理想抓取点:   {self.robot_grasp_pos[0]}")
+        #     print(f"差异:        {self.robot_grasp_pos[0] - finger_avg}")
+
     def _compute_rewards(
         self,
         actions,
@@ -412,12 +451,42 @@ class FrankaCabinetEnv(DirectRLEnv):
         finger_reward_scale,
         joint_positions,
     ):
+        """_summary_
+
+        Args:
+            actions (_type_): _description_
+            cabinet_dof_pos (_type_): 柜子关节位置
+            franka_grasp_pos (torch.Tensor): 指尖在w下位置
+            drawer_grasp_pos (torch.Tensor): 把手在w下位置
+            franka_grasp_rot (torch.Tensor): _description_
+            drawer_grasp_rot (torch.Tensor): _description_
+            franka_lfinger_pos (torch.Tensor): 左指几何中心在w下位置
+            franka_rfinger_pos (torch.Tensor): 右指几何中心在w下位置
+            gripper_forward_axis (torch.Tensor): 夹爪朝前轴
+            drawer_inward_axis (torch.Tensor): 抽屉朝前轴
+            gripper_up_axis (torch.Tensor): 夹爪朝上轴
+            drawer_up_axis (torch.Tensor): 抽屉朝上轴
+            num_envs (_type_): _description_
+            dist_reward_scale (_type_): _description_
+            rot_reward_scale (_type_): _description_
+            open_reward_scale (_type_): _description_
+            action_penalty_scale (_type_): _description_
+            finger_reward_scale (_type_): _description_
+            joint_positions (_type_): _description_
+
+        Returns:
+            _type_: _description_
+        """
+        #NOTE: 无存活reward
         # distance from hand to the drawer
         d = torch.norm(franka_grasp_pos - drawer_grasp_pos, p=2, dim=-1)
         dist_reward = 1.0 / (1.0 + d**2)
         dist_reward *= dist_reward
+        #NOTE: 改分段之后，让整体的函数距离近0时更加平滑，但是实际两者在0.02处差异很小，reward差异仅仅少了0.001
+        # 距离在0.2~1.6之间成45度斜率的线性递减
         dist_reward = torch.where(d <= 0.02, dist_reward * 2, dist_reward)
 
+        # 全转到世界坐标下
         axis1 = tf_vector(franka_grasp_rot, gripper_forward_axis)
         axis2 = tf_vector(drawer_grasp_rot, drawer_inward_axis)
         axis3 = tf_vector(franka_grasp_rot, gripper_up_axis)
@@ -445,6 +514,13 @@ class FrankaCabinetEnv(DirectRLEnv):
         finger_dist_penalty += torch.where(lfinger_dist < 0, lfinger_dist, torch.zeros_like(lfinger_dist))
         finger_dist_penalty += torch.where(rfinger_dist < 0, rfinger_dist, torch.zeros_like(rfinger_dist))
 
+        ## reward scales
+        #dist_reward_scale = 1.5
+        #rot_reward_scale = 1.5
+        #open_reward_scale = 10.0
+        #action_penalty_scale = 0.05
+        #finger_reward_scale = 2.0
+        ###################
         rewards = (
             dist_reward_scale * dist_reward
             + rot_reward_scale * rot_reward
@@ -472,15 +548,18 @@ class FrankaCabinetEnv(DirectRLEnv):
 
     def _compute_grasp_transforms(
         self,
-        hand_rot,
+        hand_rot, # 世界坐标系下手腕旋转四元数
         hand_pos,
-        franka_local_grasp_rot,
+        franka_local_grasp_rot, # 手腕坐标系下手指
         franka_local_grasp_pos,
         drawer_rot,
         drawer_pos,
         drawer_local_grasp_rot,
         drawer_local_grasp_pos,
     ):
+        """
+        计算世界坐标系下的指尖位置和抓取位置
+        """
         global_franka_rot, global_franka_pos = tf_combine(
             hand_rot, hand_pos, franka_local_grasp_rot, franka_local_grasp_pos
         )
@@ -489,3 +568,6 @@ class FrankaCabinetEnv(DirectRLEnv):
         )
 
         return global_franka_rot, global_franka_pos, global_drawer_rot, global_drawer_pos
+
+
+
