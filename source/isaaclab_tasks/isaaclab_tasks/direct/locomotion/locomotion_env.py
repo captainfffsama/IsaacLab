@@ -108,17 +108,17 @@ class LocomotionEnv(DirectRLEnv):
     def _get_observations(self) -> dict:
         obs = torch.cat(
             (
-                self.torso_position[:, 2].view(-1, 1),
-                self.vel_loc,
-                self.angvel_loc * self.cfg.angular_velocity_scale,
-                normalize_angle(self.yaw).unsqueeze(-1),
-                normalize_angle(self.roll).unsqueeze(-1),
-                normalize_angle(self.angle_to_target).unsqueeze(-1),
-                self.up_proj.unsqueeze(-1),
-                self.heading_proj.unsqueeze(-1),
-                self.dof_pos_scaled,
-                self.dof_vel * self.cfg.dof_vel_scale,
-                self.actions,
+                self.torso_position[:, 2].view(-1, 1), # 机器人根节点的z轴，判断是否跌倒，接近地面
+                self.vel_loc, #机身线速度被变换到机身自身的局部坐标系（躯干坐标系）。
+                self.angvel_loc * self.cfg.angular_velocity_scale, #机身局部角速度
+                normalize_angle(self.yaw).unsqueeze(-1), #归一化偏航
+                normalize_angle(self.roll).unsqueeze(-1), #归一化滚转,反映侧倾状态
+                normalize_angle(self.angle_to_target).unsqueeze(-1), #归一化目标夹角,反映目标朝向
+                self.up_proj.unsqueeze(-1), # 机身z轴和世界z轴点积，反映倾斜程度
+                self.heading_proj.unsqueeze(-1), # 前进方向和目标方向点积
+                self.dof_pos_scaled, # 关节位置
+                self.dof_vel * self.cfg.dof_vel_scale, # 关节速度
+                self.actions,# 最后动作向量
             ),
             dim=-1,
         )

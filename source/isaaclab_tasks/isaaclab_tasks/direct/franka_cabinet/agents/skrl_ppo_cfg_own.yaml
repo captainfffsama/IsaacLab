@@ -72,7 +72,7 @@ agent:
   # logging and checkpoint
   experiment:
     directory: "franka_cabinet_direct_1218_long"
-    experiment_name: "1218_long"
+    experiment_name: "ori_try"
     write_interval: auto
     checkpoint_interval: auto
 
@@ -81,5 +81,5 @@ agent:
 # https://skrl.readthedocs.io/en/latest/api/trainers/sequential.html
 trainer:
   class: SequentialTrainer
-  timesteps: 240000
+  timesteps: 24000
   environment_info: log

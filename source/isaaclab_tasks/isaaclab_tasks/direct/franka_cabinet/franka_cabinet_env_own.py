@@ -3,7 +3,7 @@
 @Author: captain_hq
 @Date: 2025-12-18 13:29:07
 @LastEditors: captain_hq tuanzhang_hc5090@outlook.com
-@LastEditTime: 2025-12-18 13:40:27
+@LastEditTime: 2025-12-18 15:45:05
 @FilePath: /IsaacLab/source/isaaclab_tasks/isaaclab_tasks/direct/franka_cabinet/franka_cabinet_env_own.py
 @Description:
 '''
@@ -27,6 +27,8 @@ from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR, ISAACLAB_NUCLEUS_DIR
 from isaaclab.utils.math import sample_uniform
 
+ISAAC_NUCLEUS_DIR="/data/Assets/Isaac/5.1/Isaac"
+ISAACLAB_NUCLEUS_DIR="/data/Assets/Isaac/5.1/Isaac/IsaacLab"
 
 
 @configclass

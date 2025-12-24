@@ -3,7 +3,7 @@
 @Author: captain_hq
 @Date: 2025-12-17 13:12:28
 @LastEditors: captain_hq tuanzhang_hc5090@outlook.com
-@LastEditTime: 2025-12-18 13:38:05
+@LastEditTime: 2025-12-24 11:33:56
 @FilePath: /IsaacLab/own_script/show_scene.py
 @Description:
 '''
@@ -35,16 +35,17 @@ simulation_app = app_launcher.app
 
 import torch
 from isaaclab_tasks.direct.franka_cabinet.franka_cabinet_env_own import FrankaCabinetEnv, FrankaCabinetEnvCfg
+from isaaclab_tasks.direct.humanoid.humanoid_env import HumanoidEnv, HumanoidEnvCfg
 
 
 def main():
     """Main function."""
     # parse the arguments
-    env_cfg = FrankaCabinetEnvCfg()
+    env_cfg = HumanoidEnvCfg()
     env_cfg.scene.num_envs = args_cli.num_envs
     env_cfg.sim.device = args_cli.device
     # setup base environment
-    env = FrankaCabinetEnv(cfg=env_cfg)
+    env = HumanoidEnv(cfg=env_cfg)
 
     # simulate physics
     count = 0
@@ -60,7 +61,7 @@ def main():
             # joint_pos = torch.randn(
             #     (env.num_envs, env.cfg.action_space), device=env.device
             # )
-            joint_pos =env._robot.data.default_joint_pos
+            joint_pos =env.robot.data.default_joint_pos
             # step the environment
             obs, rew, terminated, truncated, info = env.step(joint_pos)
             # print current orientation of pole
